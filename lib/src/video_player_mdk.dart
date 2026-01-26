@@ -1,4 +1,4 @@
-// Copyright 2022-2025 Wang Bin. All rights reserved.
+// Copyright 2022-2026 Wang Bin. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,16 +24,15 @@ class MdkVideoPlayer extends mdk.Player {
 
   @override
   void dispose() {
-    onMediaStatus(null);
-    onEvent(null);
-    onStateChanged(null);
     streamCtl.close();
     _initialized = false;
     super.dispose();
   }
 
   MdkVideoPlayer() : super() {
-    onMediaStatus((oldValue, newValue) {
+    onMediaStatus.listen((event) {
+      final oldValue = event.oldValue;
+      final newValue = event.newValue;
       _log.fine(
           '$hashCode player$nativeHandle onMediaStatus: $oldValue => $newValue');
       if (!oldValue.test(mdk.MediaStatus.loaded) &&
@@ -44,7 +43,7 @@ class MdkVideoPlayer extends mdk.Player {
         //}
         if (_initialized) {
           _log.fine('$hashCode player$nativeHandle already initialized');
-          return true;
+          return;
         }
         _initialized = true;
         textureSize.then((size) {
@@ -67,10 +66,9 @@ class MdkVideoPlayer extends mdk.Player {
           newValue.test(mdk.MediaStatus.buffered)) {
         streamCtl.add(VideoEvent(eventType: VideoEventType.bufferingEnd));
       }
-      return true;
     });
 
-    onEvent((ev) {
+    onEvent.listen((ev) {
       _log.fine(
           '$hashCode player$nativeHandle onEvent: ${ev.category} - ${ev.detail} - ${ev.error}');
       if (ev.category == "reader.buffering") {
@@ -84,17 +82,17 @@ class MdkVideoPlayer extends mdk.Player {
       }
     });
 
-    onStateChanged((oldValue, newValue) {
+    onStateChanged.listen((event) {
       _log.fine(
-          '$hashCode player$nativeHandle onPlaybackStateChanged: $oldValue => $newValue');
-      if (newValue == mdk.PlaybackState.stopped) {
+          '$hashCode player$nativeHandle onPlaybackStateChanged: ${event.oldValue} => ${event.newValue}');
+      if (event.newValue == mdk.PlaybackState.stopped) {
         // FIXME: keep_open no stopped
         streamCtl.add(VideoEvent(eventType: VideoEventType.completed));
         return;
       }
       streamCtl.add(VideoEvent(
           eventType: VideoEventType.isPlayingStateUpdate,
-          isPlaying: newValue == mdk.PlaybackState.playing));
+          isPlaying: event.newValue == mdk.PlaybackState.playing));
     });
   }
 }
@@ -332,9 +330,8 @@ class MdkVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> setLooping(int playerId, bool looping) async {
     final player = _players[playerId];
-    if (player != null) {
-      player.loop = looping ? -1 : 0;
-    }
+    if (player == null) return;
+    player.loop = looping ? -1 : 0;
   }
 
   @override
@@ -426,11 +423,6 @@ class MdkVideoPlayerPlatform extends VideoPlayerPlatform {
   }
 
   Future<Uint8List?> snapshot(int playerId, {int? width, int? height}) async {
-    Uint8List? data;
-    final player = _players[playerId];
-    if (player == null) {
-      return data;
-    }
     return _players[playerId]?.snapshot(width: width, height: height);
   }
 
@@ -450,9 +442,7 @@ class MdkVideoPlayerPlatform extends VideoPlayerPlatform {
 
   Future<void> step(int playerId, int frames) async {
     final player = _players[playerId];
-    if (player == null) {
-      return;
-    }
+    if (player == null) return;
     player.seek(
         position: frames,
         flags: const mdk.SeekFlag(mdk.SeekFlag.frame | mdk.SeekFlag.fromNow));
@@ -519,9 +509,8 @@ class MdkVideoPlayerPlatform extends VideoPlayerPlatform {
   Future<void> _seekToWithFlags(
       int playerId, Duration position, mdk.SeekFlag flags) async {
     final player = _players[playerId];
-    if (player == null) {
-      return;
-    }
+    if (player == null) return;
+
     if (player.isLive) {
       final bufMax = player.buffered();
       final pos = player.position;
